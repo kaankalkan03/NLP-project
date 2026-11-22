@@ -1128,6 +1128,22 @@ Reading WER and CER together separates "the model got the stem but not the
 ending" (WER high, CER low) from "the model produced something else" (both
 high). No single one of them is enough for an agglutinative language.
 
+**Why these metrics.** We follow the Hugging Face Audio Course, chapter 5
+["Evaluation"](https://huggingface.co/learn/audio-course/en/chapter5/evaluation):
+WER is the standard metric for speech recognition. It counts the word
+substitutions, deletions and insertions needed to turn the system output into
+the reference, and divides by the number of reference words. Hungarian is
+agglutinative: a single word carries many suffixes (*ház* "house",
+*házainkban* "in our houses"). One wrong ending, such as *házainkba* "into
+our houses" instead of *házainkban*, makes the whole word a substitution,
+even though only one character is wrong. CER counts the same three error
+types on characters, so it shows these partial errors, which WER cannot.
+That is why we report both. Both rates are computed after the same text
+normalisation (`src/huasr/text.py`): it is applied in the same way to the
+reference and to the output of every system, so a difference in casing or
+punctuation is never counted as a recognition error, and every system is
+scored by the same rule.
+
 **Corpus-level rates.** Edit counts are summed over all clips and divided by
 the summed reference units. The mean of per-clip percentages is not used: it
 would give a one-word clip the same weight as a twenty-word clip, and a single
