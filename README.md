@@ -1235,6 +1235,12 @@ split. Its result on the test split is under
   lower). The comparison declared as the main one is the CER of the
   fine-tuned model against the CER of the same checkpoint as published; WER
   and the WER without diacritics are tested the same way.
+- The checkpoint of the fine-tuning is chosen by a different rule, fixed in
+  `src/huasr/finetune.py` before the first training run: the lowest
+  validation WER ([Fine-tuning](#fine-tuning-whisper-small-our-own-model)).
+  On validation, the last checkpoint had a slightly lower CER than the kept
+  one and a higher WER; the rule was kept, and no other checkpoint was run on
+  the test split.
 - Reported: the difference, its 95% percentile interval, and a one-sided
   p-value, the share of resamples in which the new system is not better
   (computed as (1 + count) / (1 + resamples), so it is never exactly zero).
@@ -1268,7 +1274,10 @@ bootstrap resampling for comparing two systems follows Koehn (2004).
   checkpoint of the fine-tuning; the decoding settings are the ones declared
   in the code ([Systems](#systems)).
 - **The test split was used once, after all settings were frozen.** Every
-  system was run on it once, on 22 November 2026. The runner refuses
+  system was run on it once, on 22 November 2026; the four pretrained
+  baselines about two hours after the others
+  ([The test split and the pretrained baselines](#the-test-split-and-the-pretrained-baselines)).
+  The runner refuses
   `--split test` unless the flag `--final-test` is given and refuses to
   replace an existing run unless `--force` is given; the run manifest
   records the flag, and the table of runs in

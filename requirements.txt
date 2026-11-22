@@ -1,3 +1,8 @@
+# Core packages: data, scoring, tests and the faster-whisper baselines.
+# The other pinned environments of this project:
+#   requirements-train.txt       fine-tuning Whisper small (torch, transformers)
+#   requirements-pretrained.txt  the four pretrained baselines (torch, transformers)
+#   environment-gmm-hmm.yml      the GMM-HMM baseline (conda: Montreal Forced Aligner)
 av==19.0.1
 numpy==2.5.4
 pyarrow==26.0.0
