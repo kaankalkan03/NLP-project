@@ -1469,6 +1469,19 @@ unpacked audio, the fine-tuned weights and the work folder of the GMM-HMM
 baseline; `external/` for Common Voice. No model weights, caches or
 temporary files are tracked.
 
+## Lexical coverage and OOV analysis
+
+The reproducible IV/OOV lexical-coverage analysis is implemented in
+`scripts/oov_analysis.py`. It builds a vocabulary from normalized training
+references, measures exact per-clip coverage of in-vocabulary (IV) and
+out-of-vocabulary (OOV) reference-token occurrences in the test predictions,
+and recomputes WER/CER with the project scoring functions. Run
+`python scripts/oov_analysis.py` from the repository root to generate
+`results/oov_analysis.md`. The optional notebook at
+`notebooks/oov_analysis.ipynb` runs the script and displays the report.
+Coverage is descriptive exact-token overlap, not a causal estimate of the
+effect of OOV status.
+
 ## Status
 
 State of the repository on 22 November 2026.

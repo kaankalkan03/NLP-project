@@ -3,18 +3,22 @@
 - Student ID: 229920269
 - GitHub username: `hilalibrahimoglu34`
 
-> This file has to be written by hilal ibrahimoglu personally and committed from the
-> GitHub account above. Nothing below has been written yet.
-
 ## Responsibility area
 
-_Not written yet: the part of the project this member is responsible for._
+Lexical coverage and out-of-vocabulary (OOV) analysis for Hungarian VoxPopuli ASR.
 
 ## Work done
 
-_Not written yet: one entry per piece of work, with the date, what was done
-and the files or folders it changed._
+- 22 November 2026: Added a reproducible analysis script that builds the training vocabulary from clean references, calculates test-reference OOV token rates, checks per-clip IV/OOV token coverage for each available test prediction file, and recomputes WER/CER with the repository scoring functions.
+- Documented that exact token overlap is descriptive and does not establish a causal OOV effect.
+
+## Files added
+
+- `scripts/oov_analysis.py`
+- `README_oov_analysis.md`
+- `notebooks/oov_analysis.ipynb`
+- `results/oov_analysis.md` is generated when the script is run locally.
 
 ## Commits
 
-_Not written yet: links to this member's own commits in this repository._
+See the repository commit history for the commit adding this contribution.
