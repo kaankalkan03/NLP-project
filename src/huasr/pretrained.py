@@ -17,9 +17,9 @@ of `transformers`, which implements all four in the pinned release, so one
 set of packages serves them all (`requirements-pretrained.txt`). The packages
 that two cards name first, `nemo_toolkit` and `qwen-asr`, are not used: they
 pin other versions of the packages this project runs on. For Qwen3-ASR this
-means the copy of the checkpoint that Qwen publishes in the Transformers
-format, `Qwen/Qwen3-ASR-1.7B-hf`; `Qwen/Qwen3-ASR-1.7B` itself can only be
-loaded with `qwen-asr`.
+means the checkpoint that Qwen publishes for the Transformers library,
+`Qwen/Qwen3-ASR-1.7B-hf`; `Qwen/Qwen3-ASR-1.7B` itself can only be loaded
+with `qwen-asr`. That the two hold identical weights has not been checked.
 
 Language. A model is never run with a wrong or a missing language setting:
 
@@ -320,7 +320,7 @@ class Qwen3ASR(Pretrained):
     implementation = "transformers Qwen3ASRForConditionalGeneration"
     dtype = "bfloat16"
     prefix = f"language {LANGUAGE_NAME}<asr_text>"
-    max_new_tokens = 1024  # the checkpoint sets 512 and its card says to raise it for long audio
+    max_new_tokens = 1024  # the checkpoint sets 512; raised so that long clips are not cut off (fixed before any run)
     settings = {"language": LANGUAGE_NAME, "language_forced_by": prefix, "context": None,
                 "decoding": "greedy, as the generation config of the checkpoint sets it",
                 "max_new_tokens": max_new_tokens}

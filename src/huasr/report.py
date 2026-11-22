@@ -1,14 +1,16 @@
-"""Write the data tables of the READMEs from the generated summary files.
+"""Write the data and result tables of the READMEs from the generated summary and result files.
 
     python -m huasr.report           rewrite the generated blocks of the READMEs
     python -m huasr.report --check   exit with 1 if a block is not up to date
 
 No number about the data or about a result is typed into a README by hand.
 The builders write `data/raw/voxpopuli/summary.json`,
-`data/raw/voxpopuli/split_search.json` and
-`data/clean/voxpopuli/summary.json`, and the scorer writes a `scores.json` for
-every run below `results/`; this module turns them into Markdown tables and
-puts each table between a pair of marker lines in the READMEs:
+`data/raw/voxpopuli/split_search.json`, `data/raw/fleurs/summary.json` and
+`data/clean/voxpopuli/summary.json`; every run leaves a `run.json`, the
+scorer a `scores.json`, `huasr.compare` a `comparison_with_<baseline>.json`
+and the fine-tuning a `training.json` below `results/`. This module turns
+them into Markdown tables and puts each table between a pair of marker lines
+in the READMEs:
 
     <!-- generated: NAME -->
     ...
@@ -16,6 +18,11 @@ puts each table between a pair of marker lines in the READMEs:
 
 A block whose source file does not exist yet says so instead of showing a
 table.
+
+The blocks `benchmark-baselines`, `benchmark-own` and `benchmark-comparison`
+are the benchmark of the main README: the runs on the test split only, the
+lowest WER first, baselines and our own models in separate tables, and the
+paired comparison of our model with the baseline it started from.
 """
 
 from __future__ import annotations
@@ -30,10 +37,15 @@ SPLITS = ("train", "validation", "test")
 RAW_SUMMARY = "data/raw/voxpopuli/summary.json"
 SEARCH = "data/raw/voxpopuli/split_search.json"
 CLEAN_SUMMARY = "data/clean/voxpopuli/summary.json"
+FLEURS_SUMMARY = "data/raw/fleurs/summary.json"
 RESULTS = "results"
 READMES = ("README.md", "data/raw/README.md", "data/clean/README.md", "results/README.md")
 RESULT_BLOCKS = {"results-baselines": "baselines", "results-own": "own"}  # block name -> folder below results/
+BENCHMARK_BLOCKS = {"benchmark-baselines": "baselines", "benchmark-own": "own"}  # the same, final evaluation only
+BENCHMARK_SPLIT = "test"                                                  # the split of the final evaluation
 GMM_HMM = "baselines/gmm-hmm-mfa"                                         # the runs of huasr.gmm_hmm, below results/
+TRAINING_RECORD = "own/hf-whisper-small-finetuned/training.json"          # written by huasr.finetune, below results/
+METRICS = (("wer", "WER"), ("cer", "CER"), ("wer_no_diacritics", "WER without diacritics"))
 BLOCK = re.compile(r"(<!-- generated: (?P<name>[a-z-]+) -->\n)(?P<body>.*?)(<!-- end generated -->)", re.DOTALL)
 
 
@@ -149,11 +161,29 @@ def table_rate(clean: dict) -> str:
     return _table(["Split", "Clips", "min", "1%", "5%", "25%", "median", "75%", "95%", "99%", "max"], rows)
 
 
+def table_fleurs(raw: dict) -> str:
+    """What the FLEURS builder stored, from its summary: the split, the audio encodings and what did not match."""
+    def kinds(counts: dict) -> str:
+        return ", ".join(f"`{name}` {count:,}" for name, count in counts.items()) or "none"
+
+    rows = [[split, f"{part['clips']:,}", f"{part['hours']:.2f}", f"{part['sentences']:,}", part["shards"],
+             f"{part['shard_bytes'] / 1e6:.1f}"] for split, part in raw["subset"].items()]
+    audio, source = raw["audio"], raw["source"]
+    return (_table(["Split", "Clips", "Hours", "Sentences", "Shards", "Size (MB)"], rows)
+            + f"\n\nSource files: `{source['repository']}` at revision `{source['revision'][:12]}`. Encoding of the "
+              f"source audio: {kinds(audio['source_encodings'])}; stored as: {kinds(audio['stored_encodings'])}. "
+              f"Samples limited to the 16-bit range: {audio['samples_limited_to_16_bit_range']:,}. Clips that could "
+              f"not be read: {len(audio['unreadable_clips']):,}; audio files without a transcript: "
+              f"{audio['audio_without_transcript']:,}; transcripts without audio: "
+              f"{audio['transcripts_without_audio']:,}.")
+
+
 BLOCKS = {"voxpopuli-official-split": (table_official, RAW_SUMMARY), "voxpopuli-subset": (table_subset, RAW_SUMMARY),
           "voxpopuli-removed": (table_removed, RAW_SUMMARY), "voxpopuli-search": (table_search, SEARCH),
           "voxpopuli-split-report": (table_split_report, CLEAN_SUMMARY),
           "voxpopuli-number-words": (table_number_words, CLEAN_SUMMARY),
-          "voxpopuli-repair": (table_repair, CLEAN_SUMMARY), "voxpopuli-chars-per-second": (table_rate, CLEAN_SUMMARY)}
+          "voxpopuli-repair": (table_repair, CLEAN_SUMMARY), "voxpopuli-chars-per-second": (table_rate, CLEAN_SUMMARY),
+          "fleurs-subset": (table_fleurs, FLEURS_SUMMARY)}
 
 
 def _percent(part: dict) -> str:
@@ -218,6 +248,191 @@ def table_results(root: Path, group: str) -> str:
                    "their CER %"], [cells for _, _, cells in sorted(rows, key=lambda row: row[:2])]) + note
 
 
+def _run_on(run: dict) -> str:
+    """Where a run was made, as its run manifest recorded it: the GPU, or the processor with its threads or jobs."""
+    settings, hardware = run.get("settings", {}), run.get("hardware", {})
+    if settings.get("device") == "cuda":
+        return f"GPU: {settings.get('gpu', 'not recorded')}"
+    jobs = settings.get("jobs")
+    if "cpu_threads" in settings:
+        detail = f", {settings['cpu_threads']} threads"
+    elif isinstance(jobs, dict) and "decoding" in jobs:
+        detail = f", {jobs['decoding']} parallel jobs"
+    else:
+        detail = ""
+    return f"CPU: {hardware.get('processor', 'not recorded')}{detail}"
+
+
+def table_benchmark(root: Path, group: str, split: str = BENCHMARK_SPLIT) -> str:
+    """The complete runs of `group` on one split, the lowest WER first, with what is needed to read them together.
+
+    Below the table: whether every row holds the same clips, speakers, reference words and clean manifest, how
+    the intervals were made, and, for the test split, whether every run was made as a final evaluation.
+    """
+    runs = [json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted((Path(root) / RESULTS / group).glob(f"*/{split}/scores.json"))]
+    runs = sorted((scores for scores in runs if scores["complete"]),
+                  key=lambda scores: (scores["all_clips"]["wer"]["rate"], scores["system"]))
+    if not runs:
+        return f"_No complete run on the {split} split yet._"
+    rows = []
+    for scores in runs:
+        everything, rest = scores["all_clips"], scores["without_english_number_words"]
+        wer = everything["wer"]
+        rows.append([scores["system"], _checkpoint(scores["checkpoint"]), _percent(wer), _percent(everything["cer"]),
+                     f"{everything['wer_no_diacritics']['rate'] * 100:.2f}",
+                     f"{wer['substitutions']:,} / {wer['deletions']:,} / {wer['insertions']:,}",
+                     f"{rest['wer']['rate'] * 100:.2f} / {rest['cer']['rate'] * 100:.2f}",
+                     f"{everything['rtf']:.3f}", _run_on(scores)])
+    data = {(scores["all_clips"]["clips"], scores["all_clips"]["speakers"],
+             scores["all_clips"]["wer"]["reference_units"], scores["without_english_number_words"]["clips"],
+             scores["clean_manifest_sha256"]) for scores in runs}
+    if len(data) == 1:
+        clips, speakers, words, unflagged, manifest = next(iter(data))
+        note = (f"Every row: the same {clips:,} clips of {speakers} speakers with {words:,} reference words, read "
+                f"from one clean manifest (SHA-256 `{manifest[:12]}`); clips with English number words in the "
+                f"reference: {clips - unflagged:,}.")
+    else:
+        note = "The rows do not all hold the same clips and references; `results/README.md` has the numbers per run."
+    scoring = {(scores["scoring"]["interval"], scores["scoring"]["resamples"], scores["scoring"]["seed"])
+               for scores in runs}
+    if len(scoring) == 1:
+        interval, resamples, seed = next(iter(scoring))
+        note += f" Intervals: {interval}, {resamples:,} resamples, seed {seed}."
+    if split == BENCHMARK_SPLIT:
+        final = sum(bool(scores["final_test"]) for scores in runs)
+        note += f" Runs made with `--final-test`: {final} of {len(runs)}."
+    return (_table(["System", "Checkpoint and revision", "WER % [95%]", "CER % [95%]", "WER % without diacritics",
+                    "Word errors: substituted / deleted / inserted",
+                    "WER % / CER % without the clips with English number words", "RTF", "Run on"], rows)
+            + f"\n\nRows are sorted by WER, the lowest first. {note}")
+
+
+def table_comparisons(root: Path, splits: tuple[str, ...] = SPLITS) -> str:
+    """Paired comparisons of our own models with a baseline, from the files of `huasr.compare`: one row per metric."""
+    rows, scoring = [], set()
+    for path in sorted((Path(root) / RESULTS / "own").glob("*/*/comparison_with_*.json")):
+        comparison = json.loads(path.read_text(encoding="utf-8"))
+        if not comparison["complete"] or comparison["split"] not in splits:
+            continue
+        scoring.add((comparison["scoring"]["resamples"], comparison["scoring"]["seed"]))
+        parts = ((0, "all {clips:,}", comparison["all_clips"]),
+                 (1, "{clips:,} without English number words", comparison["without_english_number_words"]))
+        for order, label, part in parts:
+            for position, (key, metric) in enumerate(METRICS):
+                if key not in part:
+                    continue
+                values, new, baseline = part[key], comparison["new"]["system"], comparison["baseline"]["system"]
+                cells = [new, baseline, comparison["split"],
+                         f"{label.format(clips=part['clips'])} ({part['speakers']} speakers)", metric,
+                         f"{values['baseline'] * 100:.2f}", f"{values['new'] * 100:.2f}",
+                         f"{values['difference'] * 100:+.2f} [{values['ci95'][0] * 100:+.2f}, "
+                         f"{values['ci95'][1] * 100:+.2f}]", f"{values['p_value']:g}"]
+                rows.append((SPLITS.index(comparison["split"]), new, baseline, order, position, cells))
+    if not rows:
+        return "_No comparison yet._"
+    note = ("Difference: error rate of our model minus error rate of the baseline, in percentage points; a negative "
+            "difference means fewer errors of our model. The interval is the 95% percentile interval of that "
+            "difference and the p-value is one-sided (H0: our model is not better than the baseline); both come "
+            "from a paired bootstrap that resamples speakers")
+    if len(scoring) == 1:
+        resamples, seed = next(iter(scoring))
+        note += f", with {resamples:,} resamples and seed {seed}"
+    return (_table(["Our model", "Baseline", "Split", "Clips", "Metric", "Baseline %", "Our model %",
+                    "Difference in points [95%]", "p-value"],
+                   [cells for *_, cells in sorted(rows, key=lambda row: row[:5])])
+            + f"\n\n{note}.")
+
+
+def distance_to_best_baseline(root: Path, split: str = BENCHMARK_SPLIT) -> str:
+    """For every comparison on `split`: how far its baseline and our model are from the baseline with the lowest WER.
+
+    Differences between the point estimates of the score and comparison files; an empty string if there is
+    nothing to say (no complete baseline run, no comparison, or the compared baseline is itself the best one).
+    """
+    runs = [json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted((Path(root) / RESULTS / "baselines").glob(f"*/{split}/scores.json"))]
+    runs = [scores for scores in runs if scores["complete"]]
+    sentences = []
+    for path in sorted((Path(root) / RESULTS / "own").glob(f"*/{split}/comparison_with_*.json")):
+        comparison = json.loads(path.read_text(encoding="utf-8"))
+        part = comparison["all_clips"]
+        if not runs or not comparison["complete"] or "wer" not in part:
+            continue
+        best = min(runs, key=lambda scores: (scores["all_clips"]["wer"]["rate"], scores["system"]))
+        if best["system"] == comparison["baseline"]["system"]:
+            continue
+        before = {key: part[key]["baseline"] - best["all_clips"][key]["rate"] for key, _ in METRICS[:2]}
+        after = {key: part[key]["new"] - best["all_clips"][key]["rate"] for key, _ in METRICS[:2]}
+        distances = [f"`{system}` "
+                     + " and ".join(f"{name} {values[key] * 100:+.2f} points" for key, name in METRICS[:2])
+                     for system, values in ((comparison["baseline"]["system"], before),
+                                            (comparison["new"]["system"], after))]
+        closed = ", ".join(f"{name} {(before[key] - after[key]) / before[key] * 100:.1f}%"
+                           for key, name in METRICS[:2] if before[key] > 0)
+        sentences.append(f"Distance to the baseline with the lowest WER on the {split} split, `{best['system']}`, as "
+                         f"a difference between point estimates on the same clips (no interval was computed for "
+                         f"it): {'; '.join(distances)}."
+                         + (f" Share of that distance closed by our model: {closed}." if closed else ""))
+    return "\n\n".join(sentences)
+
+
+def table_runs(root: Path) -> str:
+    """Every run folder below results/, from its run.json: when and where it was made and whether it is final."""
+    def moment(value: str) -> str:
+        return value.replace("T", " ")[:16] if value else "not recorded"
+
+    rows = []
+    for path in sorted((Path(root) / RESULTS).glob("*/*/*/run.json")):
+        run = json.loads(path.read_text(encoding="utf-8"))
+        final = ("yes" if run["final_test"] else "no") if run["split"] == BENCHMARK_SPLIT else "-"
+        rows.append((SPLITS.index(run["split"]), run["group"], run["system"], [
+            run["system"], run["group"], run["split"], moment(run.get("started_utc", "")), f"{run['clips']:,}",
+            "yes" if run["complete"] else "no", final, "yes" if path.with_name("scores.json").is_file() else "no",
+            _run_on(run)]))
+    if not rows:
+        return "_No run yet._"
+    return _table(["System", "Group", "Split", "Started (UTC)", "Clips", "Whole split", "Made with `--final-test`",
+                   "Scored", "Run on"], [cells for *_, cells in sorted(rows, key=lambda row: row[:3])])
+
+
+def table_finetune_run(root: Path) -> str:
+    """The fine-tuning run that was really made, from the training record `huasr.finetune` wrote."""
+    path = Path(root) / RESULTS / TRAINING_RECORD
+    if not path.is_file():
+        return f"_Not run yet: `{RESULTS}/{TRAINING_RECORD}` does not exist._"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if record.get("smoke") or not record["complete"]:
+        return f"_`{RESULTS}/{TRAINING_RECORD}` is the record of a trial run or of a run that did not finish._"
+    values, hardware, seconds = record["hyperparameters"], record["hardware"], record["seconds"]
+    train, best, evaluations = record["data"]["train"], record["best"], record["evaluations"]
+    clips = values["batch_size"] * values["gradient_accumulation_steps"]
+    packages = ", ".join(f"{name} {record['packages'][name]}" for name in ("torch", "transformers", "accelerate")
+                         if name in record.get("packages", {}))
+    facts = [["Started and finished (UTC)", f"{record['started_utc'].replace('T', ' ')[:16]} to "
+                                            f"{record['finished_utc'].replace('T', ' ')[:16]}"],
+             ["GPU", f"{hardware['gpu']}, {hardware['gpu_memory_bytes'] / 2 ** 30:.1f} GiB of memory"],
+             ["Peak GPU memory", f"{hardware['peak_gpu_memory_bytes'] / 2 ** 30:.1f} GiB with {clips} clips per update "
+                                 f"(batches of {values['batch_size']})"],
+             ["Training clips read", f"{train['clips']:,} ({train['hours']:.2f} h, {train['speakers']} speakers)"],
+             ["Updates", f"{values['max_steps']:,}; continued after an interruption: "
+                         f"{'yes' if record.get('resumed') else 'no'}"],
+             ["Time", f"{seconds['total'] / 60:.1f} min in all: {seconds['training_steps'] / 60:.1f} min of updates "
+                      f"and {seconds['evaluations'] / 60:.1f} min for {len(evaluations)} validation passes"],
+             ["Checkpoint kept", f"update {best['step']:,}, the lowest validation "
+                                 f"{record['selection']['metric'].upper()} of the evaluated checkpoints"],
+             ["Packages", packages]]
+    steps = [[f"{row['step']:,}", f"{row['epoch']:.2f}", f"{row['loss']:.4f}", f"{row['wer']:.2f}", f"{row['cer']:.2f}",
+              "kept" if row["step"] == best["step"] else ""] for row in evaluations]
+    decoding = record["selection"]["decoding"]
+    return (_table(["Fine-tuning run", "As recorded"], facts) + "\n\n"
+            + _table(["Update", "Epoch, as the trainer counts it", "Validation loss", "Validation WER %",
+                      "Validation CER %", ""], steps)
+            + f"\n\nThe validation figures of this table only choose the checkpoint: they are decoded in batches with "
+              f"beam size {decoding['num_beams']}, on the {record['data']['validation']['clips']:,} validation clips "
+              f"that fit the window of the model. The results of the kept checkpoint are in the result tables.")
+
+
 def block_finetune(root: Path) -> str:
     """Clips and settings of the fine-tuning run, from the clean manifest and the constants of `huasr.finetune`."""
     from . import finetune  # imported here: the other blocks need nothing but the summary files
@@ -254,18 +469,39 @@ def block_finetune(root: Path) -> str:
               f"(`python -m huasr.finetune plan`).")
 
 
+def result_block(name: str, root: Path) -> tuple[str, str] | None:
+    """Table and source of a block that is written from the files below results/; None for any other block."""
+    comparisons = f"`{RESULTS}/own/<system>/{{split}}/comparison_with_<baseline>.json`"
+    if name == "results-gmm-hmm":
+        return table_gmm_hmm(root), f"`{RESULTS}/{GMM_HMM}/<split>/run.json` and `scores.json`"
+    if name in RESULT_BLOCKS:
+        group = RESULT_BLOCKS[name]
+        return table_results(root, group), f"`{RESULTS}/{group}/<system>/<split>/scores.json`"
+    if name in BENCHMARK_BLOCKS:
+        group = BENCHMARK_BLOCKS[name]
+        return table_benchmark(root, group), f"`{RESULTS}/{group}/<system>/{BENCHMARK_SPLIT}/scores.json`"
+    if name == "benchmark-comparison":
+        distance = distance_to_best_baseline(root)
+        return (table_comparisons(root, (BENCHMARK_SPLIT,)) + (f"\n\n{distance}" if distance else ""),
+                comparisons.format(split=BENCHMARK_SPLIT)
+                + (f" and `{RESULTS}/baselines/<system>/{BENCHMARK_SPLIT}/scores.json`" if distance else ""))
+    if name == "results-comparisons":
+        return table_comparisons(root), comparisons.format(split="<split>")
+    if name == "results-runs":
+        return table_runs(root), f"`{RESULTS}/<group>/<system>/<split>/run.json`"
+    if name == "finetune-run":
+        return table_finetune_run(root), f"`{RESULTS}/{TRAINING_RECORD}`"
+    return None
+
+
 def render(text: str, root: Path) -> str:
     """`text` with every generated block rewritten from the source files below `root`."""
     def block(match: re.Match) -> str:
         if match["name"] == "finetune-plan":
             return f"{match[1]}{block_finetune(root)}\n{match[4]}"
-        if match["name"] == "results-gmm-hmm":
-            source = f"`{RESULTS}/{GMM_HMM}/<split>/run.json` and `scores.json`"
-            return f"{match[1]}{table_gmm_hmm(root)}\n\nSource: {source}.\n{match[4]}"
-        if match["name"] in RESULT_BLOCKS:
-            group = RESULT_BLOCKS[match["name"]]
-            body = table_results(root, group) + f"\n\nSource: `{RESULTS}/{group}/<system>/<split>/scores.json`."
-            return f"{match[1]}{body}\n{match[4]}"
+        from_results = result_block(match["name"], root)
+        if from_results:
+            return f"{match[1]}{from_results[0]}\n\nSource: {from_results[1]}.\n{match[4]}"
         if match["name"] not in BLOCKS:
             raise ValueError(f"unknown generated block {match['name']!r}")
         function, source = BLOCKS[match["name"]]

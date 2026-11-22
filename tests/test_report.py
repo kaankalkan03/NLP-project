@@ -73,6 +73,27 @@ CLEAN = {
     "chars_per_second": {split: {"clips": 10, "min": 2.5, "p1": 3.0, "p5": 5.0, "p25": 10.0, "p50": 14.0, "p75": 16.0,
                                  "p95": 19.0, "p99": 22.0, "max": 40.0, "mean": 13.5} for split in report.SPLITS},
 }
+FLEURS = {
+    "source": {"repository": "google/fleurs", "revision": "0123456789abcdef0123"},
+    "subset": {"test": {"clips": 1200, "hours": 3.5, "sentences": 400, "shards": 2, "shard_bytes": 150_250_000}},
+    "audio": {"source_encodings": {"wav_f32le": 1190, "wav_s16le": 10}, "stored_encodings": {"flac_s16": 1200},
+              "samples_limited_to_16_bit_range": 6, "unreadable_clips": {"clip-7": "truncated"},
+              "audio_without_transcript": 2, "length_differs_from_tsv": 0, "transcripts_without_audio": 1},
+}
+TRAINING = {
+    "system": "hf-whisper-small-finetuned", "group": "own", "complete": True, "smoke": False, "resumed": False,
+    "data": {"train": {"clips": 4000, "hours": 11.5, "speakers": 20}, "validation": {"clips": 800}},
+    "hyperparameters": {"max_steps": 1000, "batch_size": 8, "gradient_accumulation_steps": 2},
+    "selection": {"metric": "wer", "decoding": {"num_beams": 1}},
+    "evaluations": [{"step": 0, "epoch": 0.0, "loss": 0.75, "wer": 40.125, "cer": 12.5},
+                    {"step": 500, "epoch": 2.0, "loss": 0.3125, "wer": 25.0, "cer": 8.25},
+                    {"step": 1000, "epoch": 4.0, "loss": 0.375, "wer": 26.5, "cer": 8.0}],
+    "best": {"step": 500},
+    "seconds": {"total": 3600.0, "training_steps": 1800.0, "evaluations": 1500.0},
+    "hardware": {"gpu": "Some GPU", "gpu_memory_bytes": 24 * 2 ** 30, "peak_gpu_memory_bytes": 18 * 2 ** 30},
+    "packages": {"python": "3.13.0", "torch": "2.14.1", "transformers": "5.23.0", "accelerate": "1.16.0"},
+    "started_utc": "2026-11-22T02:38:29Z", "finished_utc": "2026-11-22T03:38:29Z",
+}
 README = """# Title
 
 Text before.
@@ -163,6 +184,48 @@ class ReportTests(unittest.TestCase):
         self.assertIn("5 weight pairs were tried (weights 1, 2, 4); 3 of them leave at least 2 h of test audio, "
                       "2.5 h of validation audio and 14 h of training audio.", lines[-1])
 
+    def test_fleurs_table_shows_the_stored_split_and_what_did_not_match(self):
+        table = report.table_fleurs(FLEURS)
+        self.assertIn("| Split | Clips | Hours | Sentences | Shards | Size (MB) |", table)
+        self.assertIn("| test | 1,200 | 3.50 | 400 | 2 | 150.2 |", table)
+        self.assertIn("Source files: `google/fleurs` at revision `0123456789ab`.", table)
+        self.assertIn("Encoding of the source audio: `wav_f32le` 1,190, `wav_s16le` 10; stored as: `flac_s16` 1,200.",
+                      table)
+        self.assertIn("Samples limited to the 16-bit range: 6. Clips that could not be read: 1; audio files without "
+                      "a transcript: 2; transcripts without audio: 1.", table)
+        block = "<!-- generated: fleurs-subset -->\n<!-- end generated -->\n"
+        self.assertIn(f"_Not built yet: `{report.FLEURS_SUMMARY}` does not exist._", report.render(block, self.root))
+        (self.root / report.FLEURS_SUMMARY).parent.mkdir(parents=True)
+        (self.root / report.FLEURS_SUMMARY).write_text(json.dumps(FLEURS), encoding="utf-8")
+        self.assertIn("| test | 1,200 | 3.50 | 400 | 2 | 150.2 |\n\nSource files:", report.render(block, self.root))
+        self.assertIn(f"Source: `{report.FLEURS_SUMMARY}`.", report.render(block, self.root))
+
+    def test_fine_tuning_run_is_reported_from_its_training_record(self):
+        block = "<!-- generated: finetune-run -->\nold\n<!-- end generated -->\n"
+        path = self.root / report.RESULTS / report.TRAINING_RECORD
+        self.assertIn(f"_Not run yet: `results/{report.TRAINING_RECORD}` does not exist._",
+                      report.render(block, self.root))
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({**TRAINING, "smoke": True}), encoding="utf-8")
+        self.assertIn("is the record of a trial run or of a run that did not finish", report.render(block, self.root))
+        path.write_text(json.dumps(TRAINING), encoding="utf-8")
+        text = report.render(block, self.root)
+        for row in ("| Started and finished (UTC) | 2026-11-22 02:38 to 2026-11-22 03:38 |",
+                    "| GPU | Some GPU, 24.0 GiB of memory |",
+                    "| Peak GPU memory | 18.0 GiB with 16 clips per update (batches of 8) |",
+                    "| Training clips read | 4,000 (11.50 h, 20 speakers) |",
+                    "| Updates | 1,000; continued after an interruption: no |",
+                    "| Time | 60.0 min in all: 30.0 min of updates and 25.0 min for 3 validation passes |",
+                    "| Checkpoint kept | update 500, the lowest validation WER of the evaluated checkpoints |",
+                    "| Packages | torch 2.14.1, transformers 5.23.0, accelerate 1.16.0 |",
+                    "| 0 | 0.00 | 0.7500 | 40.12 | 12.50 |  |", "| 500 | 2.00 | 0.3125 | 25.00 | 8.25 | kept |",
+                    "| 1,000 | 4.00 | 0.3750 | 26.50 | 8.00 |  |",
+                    "decoded in batches with beam size 1, on the 800 validation clips",
+                    f"Source: `results/{report.TRAINING_RECORD}`."):
+            self.assertIn(row, text)
+        self.assertNotIn("\nold\n", text)
+        self.assertEqual(report.render(text, self.root), text)
+
     def test_rendering_twice_changes_nothing(self):
         self.write_summaries()
         once = report.render(README, self.root)
@@ -196,6 +259,104 @@ class ReportTests(unittest.TestCase):
         for name in report.READMES:
             text = (REPOSITORY / name).read_text(encoding="utf-8")
             self.assertEqual(report.render(text, REPOSITORY), text, f"{name}: run python -m huasr.report")
+
+
+class MainReadmeTests(unittest.TestCase):
+    """What the main README says in prose, checked against the files of this repository."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (REPOSITORY / "README.md").read_text(encoding="utf-8")
+        cls.scores = {}
+        for path in sorted((REPOSITORY / report.RESULTS).glob(f"*/*/{report.BENCHMARK_SPLIT}/scores.json")):
+            scores = json.loads(path.read_text(encoding="utf-8"))
+            cls.scores[scores["system"]] = scores
+        own = REPOSITORY / report.RESULTS / "own" / "hf-whisper-small-finetuned" / report.BENCHMARK_SPLIT
+        cls.comparison = json.loads((own / "comparison_with_hf-whisper-small.json").read_text(encoding="utf-8"))
+
+    def rate(self, system, metric="wer", part="all_clips"):
+        return self.scores[system][part][metric]["rate"]
+
+    def interval(self, system, metric="wer"):
+        return self.scores[system]["all_clips"][metric]["ci95"]
+
+    def test_the_benchmark_is_in_the_main_readme_with_baselines_and_our_model_apart(self):
+        blocks = [f"<!-- generated: {name} -->" for name in ("benchmark-baselines", "benchmark-own",
+                                                              "benchmark-comparison")]
+        places = [self.text.index(block) for block in blocks]
+        self.assertEqual(places, sorted(places))
+        baselines, own = (self.text[place:].split("<!-- end generated -->")[0] for place in places[:2])
+        for system, scores in self.scores.items():
+            self.assertEqual(f"\n| {system} |" in baselines, scores["group"] == "baselines", system)
+            self.assertEqual(f"\n| {system} |" in own, scores["group"] == "own", system)
+
+    def test_the_layout_names_every_file_of_the_code_and_every_system_folder(self):
+        layout = self.text.split("## Repository layout")[1].split("\n## ")[0]
+        names = [path.name for folder, pattern in (("src/huasr", "*.py"), ("tests", "*.py"), ("notebooks", "*.ipynb"),
+                                                   (".", "requirements*.txt"), (".", "*.yml"), (".", "*.toml"),
+                                                   ("results/baselines", "*"), ("results/own", "*"))
+                 for path in sorted((REPOSITORY / folder).glob(pattern))]
+        names += ["LICENSE", ".gitignore", ".gitattributes", "contributions/", "data/raw/", "data/clean/",
+                  "voxpopuli/", "fleurs/", "training.json", "comparison_with_hf-whisper-small.json"]
+        self.assertGreater(len(names), 50)
+        self.assertEqual([name for name in names if name not in layout], [], "not explained in the layout")
+
+    def test_every_run_of_the_benchmark_is_a_final_evaluation_on_the_same_clips(self):
+        self.assertEqual(len({(scores["all_clips"]["clips"], scores["clean_manifest_sha256"])
+                              for scores in self.scores.values()}), 1)
+        self.assertTrue(all(scores["final_test"] and scores["complete"] for scores in self.scores.values()))
+
+    def test_what_the_discussion_says_about_the_best_system_holds(self):
+        best = min(self.scores, key=self.rate)
+        self.assertEqual((best, min(self.scores, key=lambda system: self.rate(system, "cer"))),
+                         ("canary-1b-v2", "canary-1b-v2"))
+        others = [system for system in self.scores if system != best]
+        self.assertTrue(all(self.interval(best)[1] < self.interval(system)[0] for system in others))
+        self.assertGreater(min(self.rate(system) for system in others), 2 * self.rate(best))
+        overlapping = [system for system in others if self.interval(system, "cer")[0] <= self.interval(best, "cer")[1]]
+        self.assertEqual(overlapping, ["parakeet-tdt-0.6b-v3"])
+
+    def test_what_the_discussion_says_about_the_fine_tuning_holds(self):
+        new, baseline = "hf-whisper-small-finetuned", "hf-whisper-small"
+        self.assertEqual((self.comparison["new"]["system"], self.comparison["baseline"]["system"]), (new, baseline))
+        smallest = round(1 / (1 + self.comparison["scoring"]["resamples"]), 5)
+        for part in ("all_clips", "without_english_number_words"):
+            for metric, _ in report.METRICS:
+                values = self.comparison[part][metric]
+                self.assertLess(values["ci95"][1], 0, f"{part} {metric}")
+                self.assertEqual(values["p_value"], smallest, f"{part} {metric}")
+        self.assertLess(self.interval(new)[1], self.interval(baseline)[0])                # WER: apart
+        self.assertGreater(self.interval(new, "cer")[1], self.interval(baseline, "cer")[0])  # CER: overlapping ends
+        for metric in ("wer", "cer"):                              # second after Canary, and not reaching it
+            ranked = sorted(self.scores, key=lambda system: self.rate(system, metric))
+            self.assertEqual(ranked[:2], ["canary-1b-v2", new])
+            self.assertLess(self.interval("canary-1b-v2", metric)[1], self.interval(new, metric)[0])
+            before = self.rate(baseline, metric) - self.rate("canary-1b-v2", metric)
+            after = self.rate(new, metric) - self.rate("canary-1b-v2", metric)
+            self.assertLess((before - after) / before, 0.5)        # less than half of the distance closed
+        below = ("faster-whisper-small", "hf-whisper-small", "qwen3-asr-1.7b", "wav2vec2-xlsr-53-hungarian",
+                 "faster-whisper-base", "gmm-hmm-mfa")
+        self.assertTrue(all(self.interval(new)[1] < self.interval(system)[0] for system in below))
+        parakeet = self.interval("parakeet-tdt-0.6b-v3")
+        self.assertTrue(parakeet[0] < self.interval(new)[0] and self.interval(new)[1] < parakeet[1])
+
+    def test_what_the_discussion_says_about_the_caveats_holds(self):
+        def width(system):
+            return self.interval(system)[1] - self.interval(system)[0]
+
+        def share(system, kind):
+            wer = self.scores[system]["all_clips"]["wer"]
+            return wer[kind] / (wer["substitutions"] + wer["deletions"] + wer["insertions"])
+
+        parakeet = "parakeet-tdt-0.6b-v3"
+        self.assertGreater(width(parakeet), 2 * max(width(system) for system in self.scores if system != parakeet))
+        self.assertGreater(share(parakeet, "insertions"), 0.5)
+        self.assertTrue(0.4 < share("gmm-hmm-mfa", "deletions") < 0.5)
+        on_gpu = {system for system, scores in self.scores.items() if scores["settings"].get("device") == "cuda"}
+        self.assertEqual(set(self.scores) - on_gpu, {"faster-whisper-base", "faster-whisper-small", "gmm-hmm-mfa"})
+        self.assertEqual({self.scores[system]["settings"]["gpu"] for system in on_gpu}, {"NVIDIA L4"})
+        self.assertEqual(sorted(self.scores, key=self.rate),       # the same order without the flagged clips
+                         sorted(self.scores, key=lambda system: self.rate(system, part="without_english_number_words")))
 
 
 if __name__ == "__main__":

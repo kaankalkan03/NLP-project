@@ -37,7 +37,7 @@ the flag `repeats_training_reference`.
 |---|---|
 | `manifest.csv` | One row per clip: every column of `data/raw/voxpopuli/manifest.csv`, unchanged, followed by `reference` (the repaired `normalized_text`), `reference_status` (`restored`, `unchanged`, `no_raw_text` or `unusual_text`), `restored_words`, `unaligned_words`, `english_number_words` (how many English number words the reference contains), `repeats_training_reference` (validation and test clips: 1 if the same reference occurs in the training split, else 0; empty for training clips) and `chars_per_second`. |
 | `repair_log.csv` | One row per restored word: `clip_id`, `split`, `word` (position of the word in `normalized_text`, counted from 0), `before`, `after`. |
-| `removal_log.csv` | One row per clip of the source that is not in the data: `clip_id`, `source_split`, `speaker_id`, `session_id`, `duration_ms`, `stage`, `reason`. So far every row has the stage `selection`: the rules of the split in `data/raw/README.md` (no speaker id, speaker or session in another split, beyond a target). |
+| `removal_log.csv` | One row per clip of the source that is not in the data: `clip_id`, `source_split`, `speaker_id`, `session_id`, `duration_ms`, `stage`, `reason`. Every row has the stage `selection`: the rules of the split in `data/raw/README.md` (no speaker id, speaker or session in another split, beyond a target). |
 | `summary.json` | The numbers of the table above, the counts of the repair, the letters that `normalized_text` lacks, the flags per split, characters per second per split, and the clips removed by each rule. |
 
 ## Reference repair
@@ -102,8 +102,8 @@ Read with care:
   are). They are reported and **not** restored: the rule above is limited to
   the one letter that belongs to the Hungarian alphabet.
 - A clip without `raw_text` cannot be checked, so its reference may still
-  lack the letter (`reference_status` is `no_raw_text`). What to do with
-  these clips is not decided.
+  lack the letter (`reference_status` is `no_raw_text`). These clips are kept
+  as they are, in the data and in every result.
 - A word that could not be aligned may also lack the letter, for example a
   number written out as a word. Nothing proves it, so it is left as it is.
 
@@ -130,8 +130,12 @@ cases: `raw_text` has digits (the normalisation did it), the clip has no
 Source: `data/clean/voxpopuli/summary.json`.
 <!-- end generated -->
 
-The references are flagged only. Removing these clips, or scoring without
-them, is a decision that has not been taken.
+The references are flagged only; no clip is removed from the data and no
+reference is rewritten. The flag is used in two places. The scorer reports
+every figure once for all clips and once without the flagged clips
+(`results/README.md`). The fine-tuning leaves the flagged clips out of its
+training clips, because their text is a wrong target; the validation and
+test clips keep them.
 
 ## Characters per second
 
@@ -150,24 +154,30 @@ divided by the duration.
 Source: `data/clean/voxpopuli/summary.json`.
 <!-- end generated -->
 
-No rule uses this number yet. A threshold has to be chosen on the training
-and validation splits, not on the test split.
+No rule uses this number: no threshold was chosen, and no clip is removed for
+it. The table is a description of the data.
 
-## Not applied yet
+## Not applied
 
-No clip is removed by a cleaning rule so far (`summary.json`,
-`removed_by_cleaning_rules`). Planned, each with a log entry per removed clip:
+No clip is removed by a cleaning rule (`summary.json`,
+`removed_by_cleaning_rules`). The clips that are not in the data were left
+out by the rules of the split, which `removal_log.csv` lists. These removal
+rules were planned and are not implemented:
 
-- A decision on references with English number words and on validation or
-  test references that also occur in the training split.
-- Clips whose transcript does not match the audio (characters per second, or
-  another signal that is chosen on training and validation data).
-- Clips that are too long for the models.
-- Transcripts that contain letters outside the Hungarian alphabet.
+- Removing validation or test clips whose reference also occurs in the
+  training split. They are flagged (`repeats_training_reference`) and
+  counted in the first table, and they stay in every result.
+- Removing clips whose transcript does not match the audio (characters per
+  second, or another signal chosen on training and validation data).
+- Removing clips that are too long for the models. The systems cut such
+  clips themselves, and the fine-tuning leaves them out of its training
+  clips (main README).
+- Removing transcripts that contain letters outside the Hungarian alphabet.
 
 No transcript is corrected beyond the repair above. Nobody in the group reads
-Hungarian, so a clip that looks wrong is removed, not relabelled, and a
-model's output is never used as a reference.
+Hungarian, so a clip that looks wrong may only be removed, never relabelled,
+and a model's output is never used as a reference. In this project no clip
+was removed for that reason.
 
 ## Reproduce
 

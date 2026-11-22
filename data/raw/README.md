@@ -7,13 +7,14 @@ folder is edited by hand. The tables below are written by
 
 | Folder | Corpus | Role | Licence | State |
 |---|---|---|---|---|
-| `voxpopuli/` | VoxPopuli, Hungarian transcribed set: a subset whose splits share no speaker and no recording session | training, development and main test data | CC0-1.0 | built |
-| `fleurs/` | FLEURS, `hu_hu`: the whole official test split | extra test set | CC BY 4.0 | not built yet |
+| `voxpopuli/` | VoxPopuli, Hungarian transcribed set: a subset whose splits share no speaker and no recording session | training, development and test data of every result of the project | CC0-1.0 | built; every system has been scored on it |
+| `fleurs/` | FLEURS, `hu_hu`: the whole official test split | extra test set | CC BY 4.0 | built; no system has been scored on it |
 
-Common Voice is a third test set, but **it is never stored here**. Its
-dataset page forbids re-hosting or re-sharing the dataset, so its files stay
-in `external/` on each member's machine (ignored by git). The scripts refuse
-to write Common Voice files into this folder.
+Common Voice was planned as a third test set, but **it is never stored
+here**. Its dataset page forbids re-hosting or re-sharing the dataset, so its
+files would stay in `external/` on each member's machine (ignored by git).
+The scripts refuse to write Common Voice files into this folder. Common
+Voice has not been downloaded with them, and no result uses it.
 
 ## VoxPopuli: what is in `voxpopuli/`
 
@@ -120,7 +121,7 @@ Source: `data/raw/voxpopuli/split_search.json`.
 |---|---|
 | `clips/<split>-NNN.tar` | The clips as FLAC files (mono, 16-bit, sample rate of the source), packed into uncompressed tar shards. Every shard stays below `MAX_SHARD_BYTES` (`src/huasr/shards.py`), which is below GitHub's file-size limit. `<split>` is `train`, `validation` or `test`. |
 | `manifest.csv` | One row per clip, columns below. |
-| `summary.json` | Source (repository, revision, files with size and SHA-256), seed, targets and the weights taken; clips, hours, speakers and sessions per split for the official split and for the subset; the speakers, sessions and sitting days shared by each pair of splits; the audio removed by each rule; the audio encodings found; clips that could not be read. |
+| `summary.json` | VoxPopuli: source (repository, revision, files with size and SHA-256), seed, targets and the weights taken; clips, hours, speakers and sessions per split for the official split and for the subset; the speakers, sessions and sitting days shared by each pair of splits; the audio removed by each rule; the audio encodings found; clips that could not be read. FLEURS: source, the clips, hours, sentences and shards of the test split, the audio encodings found, clips that could not be read, and audio and transcripts without a partner. |
 | `selection.csv` (VoxPopuli) | One row per clip of the source: `clip_id`, `source_split`, `speaker_id`, `session_id`, `duration_ms`, `decision` (`kept`, or the rule that left the clip out). |
 | `split_search.json` (VoxPopuli) | The targets, the weights that were tried, and what every weight pair keeps in each split. |
 
@@ -170,7 +171,24 @@ Every FLAC file carries the MD5 of its decoded samples in its header.
   for the original recordings. The speakers are members of parliament
   speaking in public sessions.
 
-## FLEURS (not built yet)
+## FLEURS: what is in `fleurs/`
+
+Built with `python -m huasr.subset fleurs` from the pinned source files and
+committed on 21 November 2026. It was meant as an extra test set of read
+speech; no system has been scored on it, and it has no clean step.
+
+<!-- generated: fleurs-subset -->
+| Split | Clips | Hours | Sentences | Shards | Size (MB) |
+|---|---|---|---|---|---|
+| test | 905 | 3.07 | 348 | 2 | 163.6 |
+
+Source files: `google/fleurs` at revision `70bb2e84b976`. Encoding of the source audio: `wav_f32le` 905; stored as: `flac_s16` 905. Samples limited to the 16-bit range: 6. Clips that could not be read: 0; audio files without a transcript: 0; transcripts without audio: 0.
+
+Source: `data/raw/fleurs/summary.json`.
+<!-- end generated -->
+
+FLEURS has no speaker ids and no sessions, so `speaker_id` and `session_id`
+are empty in its manifest; `sentence_id` names the sentence a clip reads.
 
 - Source: <https://huggingface.co/datasets/google/fleurs>, files
   `data/hu_hu/test.tsv` and `data/hu_hu/audio/test.tar.gz`; revision, sizes
@@ -183,7 +201,7 @@ Every FLAC file carries the MD5 of its decoded samples in its header.
   keep this attribution.
 - Selection: none; every clip of the official test split that has a
   transcript is kept. Clips without transcript and transcripts without audio
-  are counted in `summary.json`.
+  are counted in `summary.json` and in the note below the table above.
 
 ## Reproduce
 

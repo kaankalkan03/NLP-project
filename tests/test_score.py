@@ -152,6 +152,19 @@ class ResultTableTests(TemporaryFolderTestCase):
     def test_group_without_runs_says_so(self):
         self.assertEqual(report.table_results(self.root, "own"), "_No complete run yet._")
 
+    def test_run_table_lists_every_run_folder_with_date_machine_and_the_final_flag(self):
+        lines = report.table_runs(self.root).split("\n")
+        self.assertEqual(lines[0], "| System | Group | Split | Started (UTC) | Clips | Whole split | Made with "
+                                   "`--final-test` | Scored | Run on |")
+        self.assertEqual([line.split(" | ")[0] + " / " + line.split(" | ")[2] for line in lines[2:]],
+                         ["| system-a / validation", "| system-b / validation", "| system-c / validation",
+                          "| system-a / test"])  # every folder, also the trial run
+        self.assertEqual(lines[2], "| system-a | baselines | validation | not recorded | 4 | yes | - | yes | "
+                                   "CPU: test processor |")
+        self.assertIn("| system-c | baselines | validation | not recorded | 4 | no | - | yes |", lines[4])
+        self.assertIn("| system-a | baselines | test | not recorded | 4 | yes | yes | yes |", lines[5])
+        self.assertEqual(report.table_runs(self.root / "nothing"), "_No run yet._")
+
     def test_blocks_of_the_results_readme_are_rendered(self):
         text = ("# results\n\n<!-- generated: results-baselines -->\n<!-- end generated -->\n\n"
                 "<!-- generated: results-own -->\nold\n<!-- end generated -->\n")
@@ -161,6 +174,81 @@ class ResultTableTests(TemporaryFolderTestCase):
         self.assertNotIn("\nold\n", rendered)
         self.assertEqual(report.render(rendered, self.root), rendered)
         self.assertIn("results/README.md", report.READMES)
+
+
+class BenchmarkTableTests(TemporaryFolderTestCase):
+    """The tables of the main README: the test split only, the lowest WER first, baselines apart from our models."""
+
+    BETTER = [row[:5] + (row[4],) + row[6:] for row in PREDICTIONS[:3]] + [PREDICTIONS[3]]  # hypothesis = reference
+
+    def add(self, group, system, split, predictions=PREDICTIONS, complete=True, **changes):
+        folder = write_run(self.root / "results" / group / system / split, predictions, system=system, group=group,
+                           split=split, complete=complete)
+        run = json.loads((folder / "run.json").read_text(encoding="utf-8"))
+        (folder / "run.json").write_text(json.dumps({**run, **changes}), encoding="utf-8")
+        return score.score_run(folder)
+
+    def setUp(self):
+        super().setUp()
+        self.add("baselines", "system-a", "test", started_utc="2026-11-22T04:11:32Z",
+                 settings={"device": "cpu", "cpu_threads": 4})
+        self.add("baselines", "system-b", "test", self.BETTER, hardware={"processor": "some processor"},
+                 settings={"device": "cuda", "gpu": "Some GPU"})
+        self.add("baselines", "system-b", "validation")                  # another split: not in the benchmark
+        self.add("baselines", "system-c", "test", complete=False)        # a trial run: not in the benchmark
+        self.add("own", "our-model", "test", settings={"jobs": {"training": 2, "decoding": 8}})
+
+    def test_only_complete_runs_on_the_test_split_with_the_lowest_wer_first(self):
+        lines = report.table_benchmark(self.root, "baselines").split("\n")
+        self.assertEqual(lines[0], "| System | Checkpoint and revision | WER % [95%] | CER % [95%] | WER % without "
+                                   "diacritics | Word errors: substituted / deleted / inserted | WER % / CER % without "
+                                   "the clips with English number words | RTF | Run on |")
+        self.assertEqual([line.split(" | ")[0] for line in lines[2:4]], ["| system-b", "| system-a"])
+        self.assertEqual(lines[4], "")  # two rows: the validation run and the trial run are not shown
+        self.assertIn("| system-b | `nobody/fake` at `0123456789ab` | 0.00 [0.00, 0.00] | 0.00 [0.00, 0.00] | 0.00 | "
+                      "0 / 0 / 0 | 0.00 / 0.00 | 0.250 | GPU: Some GPU |", lines[2])
+        self.assertIn("| 50.00 [", lines[3])
+        self.assertTrue(lines[3].endswith("| 41.67 | 2 / 1 / 3 | 55.56 / 68.75 | 0.250 | CPU: test processor, "
+                                          "4 threads |"))
+
+    def test_the_note_says_whether_the_rows_can_be_compared(self):
+        note = report.table_benchmark(self.root, "baselines").split("\n")[-1]
+        self.assertEqual(note, "Rows are sorted by WER, the lowest first. Every row: the same 4 clips of 3 speakers "
+                               "with 12 reference words, read from one clean manifest (SHA-256 `ffffffffffff`); "
+                               "clips with English number words in the reference: 1. Intervals: 95% percentile "
+                               "bootstrap over speakers, 10,000 resamples, seed 0. Runs made with `--final-test`: "
+                               "2 of 2.")
+        self.add("baselines", "system-d", "test", PREDICTIONS[:3], final_test=False)
+        note = report.table_benchmark(self.root, "baselines").split("\n")[-1]
+        self.assertIn("The rows do not all hold the same clips and references", note)
+        self.assertIn("Runs made with `--final-test`: 2 of 3.", note)
+
+    def test_our_own_models_have_their_own_table(self):
+        own = report.table_benchmark(self.root, "own")
+        self.assertIn("| our-model |", own)
+        self.assertIn("CPU: test processor, 8 parallel jobs |", own)
+        self.assertNotIn("system-a", own)
+        self.assertNotIn("our-model", report.table_benchmark(self.root, "baselines"))
+        self.assertEqual(report.table_benchmark(self.root / "nothing", "own"),
+                         "_No complete run on the test split yet._")
+
+    def test_run_table_reads_the_start_and_the_machine_from_the_run_manifest(self):
+        table = report.table_runs(self.root)
+        self.assertIn("| system-a | baselines | test | 2026-11-22 04:11 | 4 | yes | yes | yes | CPU: test processor, "
+                      "4 threads |", table)
+        self.assertIn("| system-b | baselines | test | not recorded | 4 | yes | yes | yes | GPU: Some GPU |", table)
+
+    def test_blocks_of_the_main_readme_are_rendered(self):
+        text = ("<!-- generated: benchmark-baselines -->\nold\n<!-- end generated -->\n\n"
+                "<!-- generated: benchmark-own -->\n<!-- end generated -->\n\n"
+                "<!-- generated: results-runs -->\n<!-- end generated -->\n")
+        rendered = report.render(text, self.root)
+        self.assertIn("| system-b | `nobody/fake` at `0123456789ab` | 0.00 [", rendered)
+        self.assertIn("Source: `results/baselines/<system>/test/scores.json`.", rendered)
+        self.assertIn("Source: `results/own/<system>/test/scores.json`.", rendered)
+        self.assertIn("Source: `results/<group>/<system>/<split>/run.json`.", rendered)
+        self.assertNotIn("\nold\n", rendered)
+        self.assertEqual(report.render(rendered, self.root), rendered)
 
 
 if __name__ == "__main__":

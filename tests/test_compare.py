@@ -5,7 +5,7 @@ import io
 import json
 import unittest
 
-from huasr import compare, metrics
+from huasr import compare, metrics, report, score
 from huasr.text import to_words
 from tests.test_score import PREDICTIONS, TemporaryFolderTestCase, write_run
 
@@ -74,6 +74,62 @@ class CompareTests(TemporaryFolderTestCase):
             with self.subTest(name), self.assertRaisesRegex(ValueError, "do not hold the same clips"):
                 compare.compare_runs(folder, self.baseline)
             self.assertEqual(sorted(path.name for path in folder.iterdir()), ["predictions.csv", "run.json"])
+
+    def test_comparison_table_of_the_readmes(self):
+        self.assertEqual(report.table_comparisons(self.root), "_No comparison yet._")
+        _, comparison = compare.compare_runs(self.new, self.baseline)
+        lines = report.table_comparisons(self.root).split("\n")
+        self.assertEqual(lines[0], "| Our model | Baseline | Split | Clips | Metric | Baseline % | Our model % | "
+                                   "Difference in points [95%] | p-value |")
+        self.assertEqual([line.split(" | ")[3] + " / " + line.split(" | ")[4] for line in lines[2:8]],
+                         [f"{clips} / {metric}" for clips in ("all 4 (3 speakers)",
+                                                              "3 without English number words (2 speakers)")
+                          for metric in ("WER", "CER", "WER without diacritics")])
+        wer = comparison["all_clips"]["wer"]
+        self.assertEqual(lines[2], "| our-model | fake-system | validation | all 4 (3 speakers) | WER | 50.00 | 8.33 | "
+                                   f"-41.67 [{wer['ci95'][0] * 100:+.2f}, {wer['ci95'][1] * 100:+.2f}] | "
+                                   f"{wer['p_value']:g} |")
+        self.assertIn("a negative difference means fewer errors of our model", lines[-1])
+        self.assertIn("H0: our model is not better than the baseline", lines[-1])
+        self.assertTrue(lines[-1].endswith("a paired bootstrap that resamples speakers, with 10,000 resamples and "
+                                           "seed 0."))
+
+    def test_comparison_block_of_the_main_readme_holds_the_test_split_only(self):
+        compare.compare_runs(self.new, self.baseline)
+        text = ("<!-- generated: benchmark-comparison -->\n<!-- end generated -->\n\n"
+                "<!-- generated: results-comparisons -->\n<!-- end generated -->\n")
+        main, results = report.render(text, self.root).split("<!-- end generated -->")[:2]
+        self.assertIn("_No comparison yet._\n\nSource: `results/own/<system>/test/comparison_with_<baseline>.json`.",
+                      main)                                                   # the only comparison is on validation
+        self.assertIn("| our-model | fake-system | validation | all 4 (3 speakers) | WER |", results)
+        self.assertIn("Source: `results/own/<system>/<split>/comparison_with_<baseline>.json`.", results)
+        baseline = write_run(self.root / "results" / "baselines" / "fake-system" / "test", split="test")
+        new = write_run(self.root / "results" / "own" / "our-model" / "test", BETTER, system="our-model", group="own",
+                        split="test")
+        compare.compare_runs(new, baseline)
+        main = report.render(text, self.root).split("<!-- end generated -->")[0]
+        self.assertIn("| our-model | fake-system | test | all 4 (3 speakers) | WER | 50.00 | 8.33 | -41.67 [", main)
+        self.assertNotIn("| validation |", main)
+
+    def test_distance_to_the_best_baseline_is_stated_below_the_comparison_of_the_main_readme(self):
+        def add(name, group, rows):
+            return write_run(self.root / "results" / group / name / "test", rows, system=name, group=group,
+                             split="test")
+
+        baseline, new = add("fake-system", "baselines", PREDICTIONS), add("our-model", "own", BETTER)
+        score.score_run(baseline)
+        compare.compare_runs(new, baseline)
+        self.assertEqual(report.distance_to_best_baseline(self.root), "")  # the compared baseline is the best one
+        score.score_run(add("best-system", "baselines", [row[:5] + (row[4],) + row[6:] for row in PREDICTIONS]))
+        expected = ("Distance to the baseline with the lowest WER on the test split, `best-system`, as a difference "
+                    "between point estimates on the same clips (no interval was computed for it): `fake-system` WER "
+                    "+50.00 points and CER +56.10 points; `our-model` WER +8.33 points and CER +2.44 points. Share "
+                    "of that distance closed by our model: WER 83.3%, CER 95.7%.")
+        self.assertEqual(report.distance_to_best_baseline(self.root), expected)
+        self.assertEqual(report.distance_to_best_baseline(self.root, "validation"), "")  # nothing scored there
+        rendered = report.render("<!-- generated: benchmark-comparison -->\n<!-- end generated -->\n", self.root)
+        self.assertIn(f"\n\n{expected}\n\nSource: `results/own/<system>/test/comparison_with_<baseline>.json` and "
+                      f"`results/baselines/<system>/test/scores.json`.", rendered)
 
     def test_command_line(self):
         out, err = io.StringIO(), io.StringIO()
