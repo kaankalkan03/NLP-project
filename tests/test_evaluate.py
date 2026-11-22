@@ -191,6 +191,7 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue((self.results / "baselines" / "fake-system" / "test" / "predictions.csv").is_file())
 
 
+@needs("av")  # evaluate.environment() reports the version of the audio decoder it loads
 class EnvironmentTests(unittest.TestCase):
     def test_processor_name_and_versions_are_reported(self):
         environment = evaluate.environment()

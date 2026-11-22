@@ -189,10 +189,11 @@ interval of Parakeet, so these two systems cannot be ranked.
   the checkpoint we fine-tune, gives 244 million. The Canary card lists the
   Granary dataset and NeMo ASR Set 3.0 as training data, and the
   [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) has a Hungarian
-  VoxPopuli subset (`hu_voxpopuli`). Canary has therefore been trained on
-  Hungarian European Parliament speech from the corpus our data comes from;
-  whether the recordings our test clips were cut from are among them has not
-  been checked ([What these models have already seen](#what-these-models-have-already-seen)).
+  VoxPopuli subset (`hu_voxpopuli`). Canary has therefore very likely been
+  trained on Hungarian European Parliament speech from the corpus our data
+  comes from; which parts of Granary its training used, and whether the
+  recordings our test clips were cut from are among them, has not been
+  checked ([What these models have already seen](#what-these-models-have-already-seen)).
   The row of Canary and the row of our model therefore compare a model four
   times the size, whose training data we can only name, with a small model
   adapted on the training hours of the table under
@@ -224,7 +225,9 @@ interval of Parakeet, so these two systems cannot be ranked.
   errors are deletions. We have not found the cause. The recipe and the
   decoding are the defaults of the Montreal Forced Aligner and nothing was
   tuned, so the row shows what this recipe gives on our data, not what a
-  GMM-HMM system can reach.
+  GMM-HMM system can reach. Unlike our fine-tuning, it was trained on every
+  training clip, including those whose reference contains English number
+  words ([GMM-HMM baseline](#gmm-hmm-baseline-gmm-hmm-mfa)).
 - **Qwen3-ASR: repository.** The row is the result of
   `Qwen/Qwen3-ASR-1.7B-hf`, not of `Qwen/Qwen3-ASR-1.7B`
   ([The repository of Qwen3-ASR](#the-repository-of-qwen3-asr)). Its card
@@ -280,9 +283,9 @@ Our VoxPopuli training split contains only 20 speakers and 14.0 hours of audio; 
 
 Training, validation, and test splits have disjoint speakers and recording sessions. However, recordings from the same parliamentary sitting day may occur in different splits, potentially sharing topics and acoustic conditions.
 
-The original normalized Hungarian transcripts contained documented defects, including missing instances of the letter \`í\` and English number words appearing inside Hungarian sentences. The rule-based repair restores \`í\` only where supported by the original \`raw_text\`. Flagged training examples are excluded from fine-tuning, while affected evaluation clips are retained and separately analyzed. These precautions reduce known reference problems but do not guarantee perfectly accurate transcripts.
+The original normalized Hungarian transcripts contained documented defects, including missing instances of the letter `í` and English number words appearing inside Hungarian sentences. The rule-based repair restores `í` only where supported by the original `raw_text`. Flagged training examples are excluded from fine-tuning, while affected evaluation clips are retained and separately analyzed. The error analysis also found clips whose reference does not belong to their audio; they were kept ([Cleaning](#cleaning)). These precautions reduce known reference problems but do not guarantee perfectly accurate transcripts.
 
-Sources: [Project README](https://github.com/kaankalkan03/NLP-project/blob/main/README.md), [clean-data documentation](https://github.com/kaankalkan03/NLP-project/tree/main/data/clean), and [VoxPopuli summary](https://github.com/kaankalkan03/NLP-project/blob/main/data/clean/voxpopuli/summary.json).
+Sources: [Data](#data), [clean-data documentation](data/clean/README.md), and [VoxPopuli summary](data/clean/voxpopuli/summary.json).
 
 #### Evaluation and interpretation limitations
 
@@ -294,7 +297,7 @@ The GMM-HMM baseline has by far the highest test WER of all systems (see [Baseli
 
 Finally, our fine-tuned Whisper model was trained with a single seed. Speaker-bootstrap confidence intervals describe uncertainty across test speakers, not variation across independent training runs. Thus, our conclusions are limited to the evaluated dataset, experimental settings, and hardware.
 
-Sources: [Results and discussion](https://github.com/kaankalkan03/NLP-project/blob/main/README.md#results-and-discussion) and [run records](https://github.com/kaankalkan03/NLP-project/blob/main/results/README.md).
+Sources: [Results and discussion](#results-and-discussion) and [run records](results/README.md).
 
 ## Data
 
@@ -578,6 +581,15 @@ and clips longer than the window of a model are cut by the systems
 themselves ([Systems](#systems)). See
 [`data/clean/README.md`](data/clean/README.md).
 
+What the error analysis found afterwards: some references do not belong to
+their audio. In the validation session `20180912-0900-PLENARY-widetrim-hu`,
+for example, the output of Canary for one clip repeats a part of the
+reference of another clip of the same session
+([`results/error_analysis.md`](results/error_analysis.md)). This was seen
+after the splits were frozen and the test split had been run, so no clip was
+removed or corrected: these clips stay in the data and count against every
+system alike.
+
 ## Systems
 
 Every system sits behind one small contract (`src/huasr/systems.py`): a name,
@@ -662,10 +674,17 @@ so this system does not sit behind the contract above; see
   lexicon.
 - **Text:** the `reference` column after the scoring policy below, for the
   acoustic model and for the language model.
+- **Training clips:** every clip of the training split, including the clips
+  whose reference contains English number words. The fine-tuning leaves
+  those out ([Fine-tuning Whisper small](#fine-tuning-whisper-small-our-own-model));
+  this baseline was trained on them, so their English words are in its
+  lexicon and language model.
 - **Decoding:** `mfa transcribe` with the search settings MFA uses by default
   (`DECODE_CONFIG`); nothing was tuned. The clips of the split are given to
   MFA grouped by speaker id, because the model adapts to each speaker; no
   reference text of the split is written to the folder MFA reads.
+- **Seed:** none is given to MFA. The field `seed` in its `run.json` is 0
+  because every run record has this field; it had no effect on this run.
 
 What limits it, and what has to be kept in mind when it is compared with the
 other systems:
@@ -1014,10 +1033,11 @@ contain has not been checked.
   as training data, but the [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) lists a
   Hungarian VoxPopuli subset (`hu_voxpopuli`, files `hu/voxpopuli/hu_asr.jsonl`
   and `hu/voxpopuli/hu_ast-en.jsonl`; read on 22 November 2026). Both models
-  have therefore seen Hungarian European Parliament speech during training.
+  have therefore very likely seen Hungarian European Parliament speech during
+  training; which parts of Granary their training used has not been checked.
   Whether the recordings our test clips were cut from are among those files
-  has not been checked, so we do not claim that they are, nor that they are
-  not. FLEURS and Common Voice 7.0 are named as training data; that
+  has not been checked either, so we do not claim that they are, nor that
+  they are not. FLEURS and Common Voice 7.0 are named as training data; that
   would matter for a score on those corpora, which this project does not
   have.
 - **wav2vec 2.0** ([card](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-hungarian)):
@@ -1274,6 +1294,11 @@ python -m huasr.report --check    # the generated tables of the READMEs are up t
 python scripts/oov_analysis.py    # -> results/oov_analysis.md (same content as the committed file)
 ```
 
+The error analysis has no command-line entry point: run
+`notebooks/error_analysis.ipynb` from the repository root. It reads the saved
+prediction files with `scripts/error_analysis.py` and writes
+`results/error_analysis.md`.
+
 Raw data from VoxPopuli and FLEURS (no account needed):
 
 ```bash
@@ -1525,9 +1550,10 @@ data/clean/                  clean data, explained in data/clean/README.md
   README.md                  the reported split, the reference repair, the flags, what is not done
   voxpopuli/                 manifest.csv (with the repaired reference), repair_log.csv,
                              removal_log.csv, summary.json
-results/oov_analysis.md      generated by scripts/oov_analysis.py
 results/                     runs and result tables, explained in results/README.md
   README.md                  what a run leaves behind, all runs, result tables for both splits
+  error_analysis.md          generated by notebooks/error_analysis.ipynb (scripts/error_analysis.py)
+  oov_analysis.md            generated by scripts/oov_analysis.py
   baselines/<system>/<split>/    one run of one baseline on one split (validation, test):
                                  run.json, predictions.csv, scores.json. <system> is one of
                                  faster-whisper-base, faster-whisper-small, hf-whisper-small,
@@ -1607,6 +1633,11 @@ Done on the real data:
   split on 22 November 2026 and scored. The date, the machine and the
   `--final-test` flag of every run are in the table of runs in
   [`results/README.md`](results/README.md).
+- **Analyses.** The error analysis
+  ([`results/error_analysis.md`](results/error_analysis.md)), the
+  out-of-vocabulary analysis
+  ([`results/oov_analysis.md`](results/oov_analysis.md)) and the limitations
+  are written, under [Results and discussion](#results-and-discussion).
 
 Not done:
 
@@ -1623,9 +1654,9 @@ Not done:
   `hf-whisper-small`; the fine-tuning was run once, with one seed.
 - **No controlled measurement of speed**: the real-time factors come from
   different machines.
-- The error analysis, the out-of-vocabulary analysis and the limitations
-  section are not written yet (see the end of
-  [Results and discussion](#results-and-discussion)).
+- **No clip with a misaligned reference was removed.** The error analysis
+  found clips whose reference does not belong to their audio; they stay in
+  the data ([Cleaning](#cleaning)).
 
 ## Licence and citation
 

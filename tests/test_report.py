@@ -294,6 +294,7 @@ class MainReadmeTests(unittest.TestCase):
         layout = self.text.split("## Repository layout")[1].split("\n## ")[0]
         names = [path.name for folder, pattern in (("src/huasr", "*.py"), ("tests", "*.py"), ("notebooks", "*.ipynb"),
                                                    (".", "requirements*.txt"), (".", "*.yml"), (".", "*.toml"),
+                                                   ("scripts", "*.py"), ("results", "*.md"),
                                                    ("results/baselines", "*"), ("results/own", "*"))
                  for path in sorted((REPOSITORY / folder).glob(pattern))]
         names += ["LICENSE", ".gitignore", ".gitattributes", "contributions/", "data/raw/", "data/clean/",

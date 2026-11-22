@@ -344,7 +344,7 @@ def collect(work: Path = WORK, clean: Path = CLEAN, raw: Path = RAW, results: Pa
             "jobs": {"training": state["train"]["jobs"], "decoding": decoded["jobs"]},
             "fine_tuned": False,
         },
-        "seed": 0,
+        "seed": 0,  # every run record has this field; no seed is given to MFA
         "split": split,
         "final_test": decoded["final_test"],
         "data": {"clean_manifest": (Path(clean) / "manifest.csv").as_posix(),
