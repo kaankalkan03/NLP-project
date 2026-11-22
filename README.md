@@ -261,7 +261,38 @@ by `python scripts/oov_analysis.py`.
 
 ### Limitations
 
-Not written yet: see [issue #11](https://github.com/kaankalkan03/NLP-project/issues/11).
+
+#### Potential contamination of pretrained baselines
+
+Our pretrained baselines were evaluated without further training on our VoxPopuli dataset. However, this does not guarantee that their original training corpora were independent of our test recordings.
+
+The [Whisper model card](https://huggingface.co/openai/whisper-small) describes training on large-scale web-collected audio, without providing a complete recording-level inventory. The [Hungarian wav2vec 2.0 model card](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-hungarian) identifies Common Voice 6.1 and CSS10 for Hungarian fine-tuning, but this does not establish complete independence of its underlying pretrained representation from parliamentary recordings. The [Qwen3-ASR model card](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) does not provide sufficient recording-level information to rule out overlap. No exact overlap with our test clips has been confirmed for these systems.
+
+The [Canary model card](https://huggingface.co/nvidia/canary-1b-v2) explicitly identifies "Granary and NeMo ASR Set 3.0" as training sources. The [Parakeet model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) also identifies these datasets. The [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) lists VoxPopuli among its source corpora, while NeMo ASR Set 3.0 includes Europarl-ASR. These sources create a plausible risk of overlapping parliamentary recordings. Although VoxPopuli is also mentioned in model evaluation contexts, the exact training subsets and overlap with our Hungarian test recordings have not been verified.
+
+Therefore, the pretrained-model comparison cannot be regarded as demonstrably contamination-free. Lower error rates may partly reflect previous exposure to related audio rather than generalization alone.
+
+#### Dataset and reference limitations
+
+Our VoxPopuli training subset contains only 20 speakers and approximately 12.51 hours of training audio. It represents one domain, European Parliament speech, so conclusions may not generalize to spontaneous conversations, noisy environments, or other Hungarian speech domains.
+
+Training, validation, and test splits have disjoint speakers and recording sessions. However, recordings from the same parliamentary sitting day may occur in different splits, potentially sharing topics and acoustic conditions.
+
+The original normalized Hungarian transcripts contained documented defects, including missing instances of the letter \`í\` and English number words appearing inside Hungarian sentences. The rule-based repair restores \`í\` only where supported by the original \`raw_text\`. Flagged training examples are excluded from fine-tuning, while affected evaluation clips are retained and separately analyzed. These precautions reduce known reference problems but do not guarantee perfectly accurate transcripts.
+
+Sources: [Project README](https://github.com/kaankalkan03/NLP-project/blob/main/README.md), [clean-data documentation](https://github.com/kaankalkan03/NLP-project/tree/main/data/clean), and [VoxPopuli summary](https://github.com/kaankalkan03/NLP-project/blob/main/data/clean/voxpopuli/summary.json).
+
+#### Evaluation and interpretation limitations
+
+All reported recognition results concern VoxPopuli. Although the FLEURS test set was prepared, no system was scored on it, and Common Voice was not evaluated. Therefore, cross-domain generalization remains untested.
+
+Real-time factors (RTF) were measured on different hardware, including NVIDIA L4 GPU and laptop CPU environments. Consequently, these results are not controlled hardware comparisons. GMM-HMM also used parallel whole-split decoding, further limiting direct speed comparisons.
+
+The GMM-HMM baseline achieved a very high test WER of 87.88%. Its limited training data and closed vocabulary are constraints, but the specific cause of its poor performance was not systematically investigated. This result describes the current implementation rather than the general capabilities of GMM-HMM systems.
+
+Finally, our fine-tuned Whisper model was trained with a single seed. Speaker-bootstrap confidence intervals describe uncertainty across test speakers, not variation across independent training runs. Thus, our conclusions are limited to the evaluated dataset, experimental settings, and hardware.
+
+Sources: [Results and discussion](https://github.com/kaankalkan03/NLP-project/blob/main/README.md#results-and-discussion) and [run records](https://github.com/kaankalkan03/NLP-project/blob/main/results/README.md).
 
 ## Data
 
