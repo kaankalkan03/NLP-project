@@ -1256,7 +1256,13 @@ bootstrap resampling for comparing two systems follows Koehn (2004).
 
 ## Reproduce
 
-Tested with Python 3.13 on Windows. Python 3.12 or newer is required.
+Tested with Python 3.13 and 3.14 on Windows. Python 3.12 or newer is required.
+
+On Windows, clone into a short folder (for example `C:\src`). Some files of
+`results/` have long paths, and in a deeply nested folder their full path is
+longer than the 260 characters Windows allows by default: the clone then
+reports that the checkout failed, and `unittest` and `report --check` fail
+with `FileNotFoundError`.
 
 ```bash
 python -m venv .venv
@@ -1264,6 +1270,8 @@ python -m venv .venv
 pip install -r requirements.txt
 pip install -e .                  # makes the huasr package importable
 python -m unittest                # unit tests (also run without the line above)
+python -m huasr.report --check    # the generated tables of the READMEs are up to date
+python scripts/oov_analysis.py    # -> results/oov_analysis.md (same content as the committed file)
 ```
 
 Raw data from VoxPopuli and FLEURS (no account needed):
