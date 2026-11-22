@@ -187,10 +187,12 @@ interval of Parakeet, so these two systems cannot be ranked.
   [model card](https://huggingface.co/nvidia/canary-1b-v2) gives 978 million
   parameters; the [card of `openai/whisper-small`](https://huggingface.co/openai/whisper-small),
   the checkpoint we fine-tune, gives 244 million. The Canary card lists the
-  Granary dataset and NeMo ASR Set 3.0 as training data and names VoxPopuli
-  only in a benchmark table. We have not checked these corpora beyond the
-  card and do not know whether they hold recordings that our test clips were
-  cut from ([What these models have already seen](#what-these-models-have-already-seen)).
+  Granary dataset and NeMo ASR Set 3.0 as training data, and the
+  [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) has a Hungarian
+  VoxPopuli subset (`hu_voxpopuli`). Canary has therefore been trained on
+  Hungarian European Parliament speech from the corpus our data comes from;
+  whether the recordings our test clips were cut from are among them has not
+  been checked ([What these models have already seen](#what-these-models-have-already-seen)).
   The row of Canary and the row of our model therefore compare a model four
   times the size, whose training data we can only name, with a small model
   adapted on the training hours of the table under
@@ -268,13 +270,13 @@ Our pretrained baselines were evaluated without further training on our VoxPopul
 
 The [Whisper model card](https://huggingface.co/openai/whisper-small) describes training on large-scale web-collected audio, without providing a complete recording-level inventory. The [Hungarian wav2vec 2.0 model card](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-hungarian) identifies Common Voice 6.1 and CSS10 for Hungarian fine-tuning, but this does not establish complete independence of its underlying pretrained representation from parliamentary recordings. The [Qwen3-ASR model card](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) does not provide sufficient recording-level information to rule out overlap. No exact overlap with our test clips has been confirmed for these systems.
 
-The [Canary model card](https://huggingface.co/nvidia/canary-1b-v2) explicitly identifies "Granary and NeMo ASR Set 3.0" as training sources. The [Parakeet model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) also identifies these datasets. The [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) lists VoxPopuli among its source corpora, while NeMo ASR Set 3.0 includes Europarl-ASR. These sources create a plausible risk of overlapping parliamentary recordings. Although VoxPopuli is also mentioned in model evaluation contexts, the exact training subsets and overlap with our Hungarian test recordings have not been verified.
+The [Canary model card](https://huggingface.co/nvidia/canary-1b-v2) explicitly identifies "Granary and NeMo ASR Set 3.0" as training sources. The [Parakeet model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) also identifies these datasets. The [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) lists VoxPopuli among its source corpora, including a Hungarian subset (`hu_voxpopuli`), while NeMo ASR Set 3.0 includes Europarl-ASR. These sources create a plausible risk of overlapping parliamentary recordings. Although VoxPopuli is also mentioned in model evaluation contexts, the exact training subsets and overlap with our Hungarian test recordings have not been verified.
 
 Therefore, the pretrained-model comparison cannot be regarded as demonstrably contamination-free. Lower error rates may partly reflect previous exposure to related audio rather than generalization alone.
 
 #### Dataset and reference limitations
 
-Our VoxPopuli training subset contains only 20 speakers and approximately 12.51 hours of training audio. It represents one domain, European Parliament speech, so conclusions may not generalize to spontaneous conversations, noisy environments, or other Hungarian speech domains.
+Our VoxPopuli training split contains only 20 speakers and 14.0 hours of audio; after the exclusions described under fine-tuning, 12.51 hours of it were used to fine-tune our model. It represents one domain, European Parliament speech, so conclusions may not generalize to spontaneous conversations, noisy environments, or other Hungarian speech domains.
 
 Training, validation, and test splits have disjoint speakers and recording sessions. However, recordings from the same parliamentary sitting day may occur in different splits, potentially sharing topics and acoustic conditions.
 
@@ -288,7 +290,7 @@ All reported recognition results concern VoxPopuli. Although the FLEURS test set
 
 Real-time factors (RTF) were measured on different hardware, including NVIDIA L4 GPU and laptop CPU environments. Consequently, these results are not controlled hardware comparisons. GMM-HMM also used parallel whole-split decoding, further limiting direct speed comparisons.
 
-The GMM-HMM baseline achieved a very high test WER of 87.88%. Its limited training data and closed vocabulary are constraints, but the specific cause of its poor performance was not systematically investigated. This result describes the current implementation rather than the general capabilities of GMM-HMM systems.
+The GMM-HMM baseline has by far the highest test WER of all systems (see [Baselines on the test split](#baselines-on-the-test-split)). Its limited training data and closed vocabulary are constraints, but the specific cause of its poor performance was not systematically investigated. This result describes the current implementation rather than the general capabilities of GMM-HMM systems.
 
 Finally, our fine-tuned Whisper model was trained with a single seed. Speaker-bootstrap confidence intervals describe uncertainty across test speakers, not variation across independent training runs. Thus, our conclusions are limited to the evaluated dataset, experimental settings, and hardware.
 
@@ -1008,11 +1010,14 @@ contain has not been checked.
   human-transcribed data from NeMo ASR Set 3.0 (the corpora named for Canary
   without FLEURS). VoxPopuli is named only in benchmark tables, FLEURS only
   as evaluation data.
-- **What follows, and what does not.** Neither card names VoxPopuli as
-  training data. We have not checked whether Granary or any corpus of NeMo
-  ASR Set 3.0 holds European Parliament recordings, so we claim neither that
-  these two models have seen recordings our clips were cut from nor that
-  they have not. FLEURS and Common Voice 7.0 are named as training data; that
+- **What follows, and what does not.** Neither model card names VoxPopuli
+  as training data, but the [Granary dataset card](https://huggingface.co/datasets/nvidia/Granary) lists a
+  Hungarian VoxPopuli subset (`hu_voxpopuli`, files `hu/voxpopuli/hu_asr.jsonl`
+  and `hu/voxpopuli/hu_ast-en.jsonl`; read on 22 November 2026). Both models
+  have therefore seen Hungarian European Parliament speech during training.
+  Whether the recordings our test clips were cut from are among those files
+  has not been checked, so we do not claim that they are, nor that they are
+  not. FLEURS and Common Voice 7.0 are named as training data; that
   would matter for a score on those corpora, which this project does not
   have.
 - **wav2vec 2.0** ([card](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-hungarian)):

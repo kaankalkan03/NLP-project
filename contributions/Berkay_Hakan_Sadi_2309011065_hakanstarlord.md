@@ -60,8 +60,9 @@ Result figures below are copied from the generated tables in
   notebook for wav2vec 2.0 + CTC, Canary, Parakeet and Qwen3-ASR, and ran
   them on validation and test. Canary (9.1% test WER) is better than our
   fine-tuned model. It is a much larger model; its model card lists the
-  Granary and NeMo ASR Set 3.0 corpora as training data, and whether these
-  include the recordings of our test split has not been checked.
+  Granary corpus as training data, and Granary has a Hungarian VoxPopuli
+  subset. Whether it includes the recordings of our test split has not been
+  checked.
   Files: `notebooks/baselines_pretrained.ipynb`, `src/huasr/pretrained.py`,
   `results/baselines/`.
 - **20–22 November, coordination.** Prepared the repository, the team task
