@@ -244,7 +244,13 @@ interval of Parakeet, so these two systems cannot be ranked.
 
 ### Error analysis
 
-Not written yet: see [issue #9](https://github.com/kaankalkan03/NLP-project/issues/9).
+The [error analysis notebook](notebooks/error_analysis.ipynb) compares the saved recognition
+predictions on validation and test separately. It shows the clips with the most word edits,
+compares short and long reference words, and tracks accent differences, possible suffix
+differences and repetition loops. The paired Whisper comparison shows what improved and
+which error types still occur after fine-tuning.
+
+The tables and examples are generated in [`results/error_analysis.md`](results/error_analysis.md).
 
 ### Out-of-vocabulary analysis
 
@@ -1402,7 +1408,9 @@ notebooks/                   Google Colab notebooks, stored without output; they
   baselines_pretrained.ipynb     shared setup, then one self-contained section per pretrained
                                  baseline: validation split, test split once, archive of the results
   oov_analysis.ipynb             runs scripts/oov_analysis.py and shows the generated report
+  error_analysis.ipynb           reads saved predictions and generates the error analysis report
 scripts/                     stand-alone analysis scripts
+  error_analysis.py             edit-aligned summaries and paired Whisper comparison
   oov_analysis.py              coverage of in-vocabulary and out-of-vocabulary reference words by
                                every system on the test split -> results/oov_analysis.md
 README_oov_analysis.md       short description of the out-of-vocabulary analysis
